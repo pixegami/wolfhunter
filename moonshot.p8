@@ -22,6 +22,32 @@ example_lines = {
  "what did you say?"
 }
 
+function new_event(desc)
+  -- Create an "event" object.
+  event = {
+    desc = desc,
+    e = nil
+  }
+  return event
+end
+
+-- create the event sequence object, we will use to manage our gameplay flow.
+event_sequence = {
+  current_event = new_event("it's your turn to move!")
+}
+
+event_sequence.next = function(this)
+ -- move sequence cursor to the next event.
+ this.current_event = this.current_event.next
+end
+
+event_sequence.add = function(this, e)
+ -- move sequence cursor to the next event.
+ this.current_event.next = e
+end
+
+event_sequence:add(new_event("this is how you do it"))
+
 function print_wrapped(text)
  line_arr = split(text," ")
  cursor(narrator_padding, narrator_box_y + narrator_padding, 7)
@@ -100,34 +126,35 @@ function draw_narrator_box()
  rectfill(0, narrator_box_y, 128, 128, 1)
 end
 
+
+
 -->8
 -- game loop
 
 function _update()
- f_count += 1
- if (btnp(5)) then 
-  if (phase == "menu") then
-    phase = "info"
-  else
-    if (narrator_index < 3) then
-      narrator_index = narrator_index + 1
-    else
-      phase = "menu"
-      narrator_index = 1
-    end
+
+  f_count += 1
+  event = event_sequence.current_event
+
+  if (btnp(5)) then 
+    event_sequence:next()
   end
- end
 end
 
 function _draw()
- cls(5)
- draw_narrator_box()
- if (phase == "menu") then
-    draw_menu()
-  else
-    print_wrapped(example_lines[narrator_index])
-    draw_caret()
-  end
+  cls(5)
+  draw_narrator_box()
+
+  -- Show the current event.
+  print_wrapped(event.desc)
+  draw_caret()
+
+  -- if (phase == "menu") then
+  --     draw_menu()
+  --   else
+  --     print_wrapped(example_lines[narrator_index])
+  --     draw_caret()
+  -- end
 end
 
 __gfx__
