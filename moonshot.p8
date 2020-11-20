@@ -9,44 +9,83 @@ col_width = 128 - (2 * narrator_padding)
 narrator_index = 1
 
 menu_index = {x=1, y=1}
-
--- One of menu | info
-phase = "menu"
-
 f_count = 0
 
--- history={"red attacks blue for 10 damage and blue faints!","item2","item3"}
-example_lines = {
- "this is an example of a very long sentence. try to break this up!",
- "we should really do something about that.",
- "what did you say?"
-}
-
-function new_event(desc)
+function new_event(type, desc)
   -- Create an "event" object.
   event = {
+    type = type,
     desc = desc,
-    e = nil
+    next = nil
   }
   return event
 end
 
+-- game state
+function new_game_state()
+  local state = {
+    player = new_unit("player", 100, new_event("menu", "")),
+    enemy = new_unit("wolf", 120, new_event("story", "the wolf attacks you!")),
+    is_player_turn = true
+  }
+
+  state.current_unit = function(this)
+    if this.is_player_turn then
+      return this.player
+    else
+      return this.enemy
+    end
+  end
+
+  state.start_turn = function(this, is_player_turn)
+    this.is_player_turn = is_player_turn
+    sequence:add(this:current_unit().event)
+    sequence:add(new_event("end_turn"))
+  end
+
+  state.switch_turn = function(this)
+    this:start_turn(not this.is_player_turn)
+    sequence:next()
+  end
+
+  return state
+end
+
+-- units
+function new_unit(name, hp, event)
+  return {
+    name=name,
+    hp=hp,
+    event=event
+  }
+end
+
 -- create the event sequence object, we will use to manage our gameplay flow.
-event_sequence = {
-  current_event = new_event("it's your turn to move!")
-}
+function new_sequence()
+  local first_event = new_event("story", "it's your turn to move!")
+  local sequence = {
+    head = first_event,
+    tail = first_event
+  }
 
-event_sequence.next = function(this)
- -- move sequence cursor to the next event.
- this.current_event = this.current_event.next
+  sequence.next = function(this)
+    -- move sequence cursor to the next event.
+    this.head = this.head.next
+  end
+
+  sequence.add = function(this, e)
+    -- add an event to the end of the sequence.
+    this.tail.next = e
+    this.tail = e
+  end
+
+  sequence.insert = function(this, e)
+    -- move sequence cursor to the next event.
+    e.next = this.head.next
+    this.head.next = e
+  end
+  return sequence
 end
-
-event_sequence.add = function(this, e)
- -- move sequence cursor to the next event.
- this.current_event.next = e
-end
-
-event_sequence:add(new_event("this is how you do it"))
 
 function print_wrapped(text)
  line_arr = split(text," ")
@@ -54,15 +93,16 @@ function print_wrapped(text)
  line = ""
  
  for word in all(line_arr) do
-  prospect_length = (#line + #word + 1) * 4
+  word_str = tostring(word) -- case to string or it fails on numbers
+  prospect_length = (#line + #word_str + 1) * 4
   if (prospect_length >= col_width) do
    print(line)
-   line = word
+   line = word_str
   else
    if (#line == 0) do
-    line = word
+    line = word_str
    else
-    line = line.." "..word
+    line = line.." "..word_str
    end
   end
  end
@@ -126,18 +166,30 @@ function draw_narrator_box()
  rectfill(0, narrator_box_y, 128, 128, 1)
 end
 
-
-
 -->8
 -- game loop
+
+function _init()
+  sequence = new_sequence()
+  state = new_game_state()
+
+  -- start the player's turn.
+  state:start_turn(true)
+end
 
 function _update()
 
   f_count += 1
-  event = event_sequence.current_event
+  event = sequence.head
 
-  if (btnp(5)) then 
-    event_sequence:next()
+  -- check for end-turn.
+  if event.type == "end_turn" then
+    state:switch_turn()
+  elseif btnp(5) then
+    if event.type == "menu" then 
+      sequence:insert(new_event("story", "you attacked the wolf"))
+    end
+    sequence:next()
   end
 end
 
@@ -146,15 +198,12 @@ function _draw()
   draw_narrator_box()
 
   -- Show the current event.
-  print_wrapped(event.desc)
-  draw_caret()
-
-  -- if (phase == "menu") then
-  --     draw_menu()
-  --   else
-  --     print_wrapped(example_lines[narrator_index])
-  --     draw_caret()
-  -- end
+  if (event.type == "menu") then
+    draw_menu() 
+  else
+    print_wrapped(event.desc)
+    draw_caret()
+  end
 end
 
 __gfx__
