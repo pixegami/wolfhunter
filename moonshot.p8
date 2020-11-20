@@ -11,21 +11,57 @@ narrator_index = 1
 menu_index = {x=1, y=1}
 f_count = 0
 
-function new_event(type, desc)
+-- events
+function new_event(type, desc, executable)
   -- Create an "event" object.
-  event = {
+  local event = {
     type = type,
     desc = desc,
-    next = nil
+    next = nil,
+    executable = executable
   }
   return event
 end
 
+function new_damage_event(unit, value)
+  local desc = unit.name.." you take "..value.." damage!"
+  local event = new_event("damage", desc, true)
+  event.action = function(this)
+    unit.hp -= value
+    if unit.hp <= 0 then
+      unit.hp = 0
+      sequence:add(new_event("end_combat", "the fight has ended!"))
+    end
+  end
+  return event
+end
+
+function new_end_turn_event()
+  local event = new_event("end_turn", "", true)
+  event.action = function(this)
+    state:switch_turn()
+  end
+  return event
+end
+
+function generate_event(event_id, unit, target)
+  if event_id == "menu" then return new_event("menu") end
+  if event_id == "slash" then return new_damage_event(target, 32) end
+  if event_id == "howl" then return new_damage_event(target, 5) end
+
+  -- unknown event id
+  return new_event("story", "unknown "..event_id)
+end
+
 -- game state
 function new_game_state()
+
+  local player = new_unit("player", 100, {"menu"})
+  local enemy = new_unit("wolf", 120, {"slash", "howl"})
+
   local state = {
-    player = new_unit("player", 100, new_event("menu", "")),
-    enemy = new_unit("wolf", 120, new_event("story", "the wolf attacks you!")),
+    player = player,
+    enemy = enemy,
     is_player_turn = true
   }
 
@@ -37,10 +73,19 @@ function new_game_state()
     end
   end
 
+  state.current_target = function(this)
+    if this.is_player_turn then
+      return this.enemy
+    else
+      return this.player
+    end
+  end
+
   state.start_turn = function(this, is_player_turn)
     this.is_player_turn = is_player_turn
-    sequence:add(this:current_unit().event)
-    sequence:add(new_event("end_turn"))
+    unit_event = generate_event(this:current_unit():get_random_event_id(), this:current_unit(), this:current_target())
+    sequence:add(unit_event)
+    sequence:add(new_end_turn_event())
   end
 
   state.switch_turn = function(this)
@@ -53,11 +98,18 @@ end
 
 -- units
 function new_unit(name, hp, event)
-  return {
+  local unit = {
     name=name,
     hp=hp,
     event=event
   }
+
+  unit.get_random_event_id = function(this)
+    rnd_index = flr(rnd(#this.event)+1)
+    return this.event[rnd_index]
+  end
+
+  return unit
 end
 
 -- create the event sequence object, we will use to manage our gameplay flow.
@@ -166,6 +218,16 @@ function draw_narrator_box()
  rectfill(0, narrator_box_y, 128, 128, 1)
 end
 
+function draw_unit(unit, pos_x, pos_y)
+  print(unit.name..": "..unit.hp, pos_x, pos_y, 7)
+end
+
+function draw_units()
+  -- draw player unit
+  draw_unit(state.player, 5, 5)
+  draw_unit(state.enemy, 84, 5)
+end
+
 -->8
 -- game loop
 
@@ -182,10 +244,14 @@ function _update()
   f_count += 1
   event = sequence.head
 
+  -- execute this event's action.
+  if event.executable then
+    event:action()
+    event.executable = false
+  end
+
   -- check for end-turn.
-  if event.type == "end_turn" then
-    state:switch_turn()
-  elseif btnp(5) then
+  if btnp(5) then
     if event.type == "menu" then 
       sequence:insert(new_event("story", "you attacked the wolf"))
     end
@@ -196,8 +262,9 @@ end
 function _draw()
   cls(5)
   draw_narrator_box()
+  draw_units()
 
-  -- Show the current event.
+  -- show the current event.
   if (event.type == "menu") then
     draw_menu() 
   else
