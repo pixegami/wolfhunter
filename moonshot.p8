@@ -44,15 +44,6 @@ function new_end_turn_event()
   return event
 end
 
-function generate_event(event_id, unit, target)
-  if event_id == "menu" then return new_event("menu") end
-  if event_id == "slash" then return new_damage_event(target, 32) end
-  if event_id == "howl" then return new_damage_event(target, 5) end
-
-  -- unknown event id
-  return new_event("story", "unknown "..event_id)
-end
-
 -- game state
 function new_game_state()
 
@@ -200,6 +191,12 @@ function new_menu(items, n_columns)
     -- translate x and y back into selected index.
     this.selected_index = this.n_columns * pos_y + pos_x + 1
 
+    -- execute the selected event
+    if btnp(5) then 
+      local selected_event_id = this.items[this.selected_index]
+      local selected_event = generate_event(selected_event_id, state.player, state.enemy)
+      sequence:insert(selected_event)
+    end
   end
 
   -- render the current menu
@@ -211,7 +208,6 @@ function new_menu(items, n_columns)
       -- print the selected menu item
       if (this.selected_index == i) then prefix = "▶ " else prefix = "  " end
       print(prefix..this.items[i], pos_x, pos_y, 7)
-
     end
   end
 
@@ -223,6 +219,22 @@ function new_menu(items, n_columns)
 
   return menu
 end
+
+-->8
+--event generators
+
+function generate_event(event_id, unit, target)
+  if event_id == "menu" then return new_event("menu") end
+  if event_id == "slash" then return new_damage_event(target, 32) end
+  if event_id == "howl" then return new_damage_event(target, 5) end
+  if event_id == "attack" then return new_damage_event(target, 64) end
+
+  -- unknown event id
+  return new_event("story", "unknown "..event_id)
+end
+
+-->8
+--rendering
 
 function draw_menu(menu)
 end
@@ -274,15 +286,11 @@ function _update()
     event.executable = false
   end
 
+  -- update the menu if we are showing one.
   if event.type == "menu" then combat_menu:update() end
 
-  -- check for end-turn.
-  if btnp(5) then
-    if event.type == "menu" then 
-      sequence:insert(new_event("story", "you attacked the wolf"))
-    end
-    sequence:next()
-  end
+  -- each time we press x, the sequence progresses.
+  if btnp(5) then sequence:next() end
 end
 
 function _draw()
