@@ -11,39 +11,6 @@ narrator_index = 1
 menu_index = {x=1, y=1}
 f_count = 0
 
--- events
-function new_event(type, desc, executable)
-  -- Create an "event" object.
-  local event = {
-    type = type,
-    desc = desc,
-    next = nil,
-    executable = executable
-  }
-  return event
-end
-
-function new_damage_event(unit, value)
-  local desc = unit.name.." you take "..value.." damage!"
-  local event = new_event("damage", desc, true)
-  event.action = function(this)
-    unit.hp -= value
-    if unit.hp <= 0 then
-      unit.hp = 0
-      sequence:add(new_event("end_combat", "the fight has ended!"))
-    end
-  end
-  return event
-end
-
-function new_end_turn_event()
-  local event = new_event("end_turn", "", true)
-  event.action = function(this)
-    state:switch_turn()
-  end
-  return event
-end
-
 -- game state
 function new_game_state()
 
@@ -74,6 +41,7 @@ function new_game_state()
 
   state.start_turn = function(this, is_player_turn)
     this.is_player_turn = is_player_turn
+    this:current_unit():on_turn_start()
     unit_event = generate_event(this:current_unit():get_random_event_id(), this:current_unit(), this:current_target())
     sequence:add(unit_event)
     sequence:add(new_end_turn_event())
@@ -92,12 +60,20 @@ function new_unit(name, hp, event)
   local unit = {
     name=name,
     hp=hp,
-    event=event
+    event=event,
+
+    --combat status
+    block = 24, -- block incoming damage for 1 turn.
   }
 
   unit.get_random_event_id = function(this)
     rnd_index = flr(rnd(#this.event)+1)
     return this.event[rnd_index]
+  end
+
+  -- do this every time the unit starts a new turn.
+  unit.on_turn_start = function(this)
+    this.block = 0
   end
 
   return unit
@@ -223,14 +199,87 @@ end
 -->8
 --event generators
 
+-- events
+function new_event(type, desc, executable)
+  -- Create an "event" object.
+  local event = {
+    type = type,
+    desc = desc,
+    next = nil,
+    executable = executable
+  }
+  return event
+end
+
+function new_attack_event(name, unit, target, value)
+  local event = new_event("story", unit.name.." uses "..name..".", true)
+
+  event.action = function(this)
+    -- when the action is used, we evalute block and damage as separate events.
+    local damage = value
+    local block_event = nil
+    if target.block > 0 then
+      blocked_damage = min(target.block, value)
+      target.block -= blocked_damage
+      damage -= blocked_damage
+      block_event = new_event("story", "blocked "..blocked_damage.." damage.")
+    end
+
+    -- resolve the damage.
+    if damage > 0 then
+      local dmg_event = new_damage_event(target, damage)
+      sequence:insert(dmg_event)
+    else
+      local dmg_event = new_event("story", "this dealt no damage!")
+      sequence:insert(dmg_event)
+    end
+
+    -- finally insert the block event so it resolves first.
+    if block_event then sequence:insert(block_event) end
+  end
+
+  return event
+end
+
+function new_damage_event(unit, value)
+
+  local desc = unit.name.." you take "..value.." damage!"
+  local dmg_event = new_event("damage", desc, true)
+  dmg_event.action = function(this)
+    unit.hp -= value
+    if unit.hp <= 0 then
+      unit.hp = 0
+      sequence:insert(new_event("end_combat", "the fight has ended!"))
+    end
+  end
+
+  return dmg_event
+end
+
+function new_end_turn_event()
+  local event = new_event("end_turn", "", true)
+  event.action = function(this)
+    state:switch_turn()
+  end
+  return event
+end
+
+function new_block_event(unit, value)
+  local desc = unit.name.." gains "..value.." block."
+  local event = new_event("block", desc, true)
+  event.action = function(this) unit.block += value end
+  return event
+end
+
 function generate_event(event_id, unit, target)
   if event_id == "menu" then return new_event("menu") end
-  if event_id == "slash" then return new_damage_event(target, 32) end
-  if event_id == "howl" then return new_damage_event(target, 5) end
-  if event_id == "attack" then return new_damage_event(target, 64) end
+  if event_id == "slash" then return new_attack_event(event_id, unit, target, 32) end
+  if event_id == "howl" then return new_attack_event(event_id, unit, target, 5) end
+  if event_id == "attack" then return new_attack_event(event_id, unit, target, 64) end
+  if event_id == "defend" then return new_block_event(unit, 12) end
 
   -- unknown event id
-  return new_event("story", "unknown "..event_id)
+  return new_event("story", "you use "..event_id.."... but nothing happens.")
 end
 
 -->8
