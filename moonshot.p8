@@ -166,42 +166,65 @@ function flip_count(n_frames)
  return mod_count < n_frames
 end
 
-function draw_menu()
+-- menu system
+function new_menu(items, n_columns)
 
- menu_col_size = 2
- -- move the menu cursor
- for i=0,3 do
-  if btnp(i) then sfx(0) end
- end
- if btnp(0) then menu_index.x = menu_index.x - 1 end
- if btnp(1) then menu_index.x = menu_index.x + 1 end
- if btnp(2) then menu_index.y = menu_index.y - 1 end
- if btnp(3) then menu_index.y = menu_index.y + 1 end
- -- cap the positions
- menu_index.x = max(1, menu_index.x)
- menu_index.x = min(2, menu_index.x)
- menu_index.y = max(1, menu_index.y)
- menu_index.y = min(2, menu_index.y)
- -- render the selected
- selected_menu_index = (menu_index.x - 1) * menu_col_size + menu_index.y
+  -- model the menu
+  local menu = {
+    items = items,
+    n_columns = 2,
+    selected_index = 1,
 
- x_offset = 12
- x_gap = 42
- y_offset = 8
- menu_options = {"attack", "defend", "magic", "item"}
- menu_y = narrator_box_y + narrator_padding + y_offset
- menu_line_height = 12
- menu_pos_x = {x_offset, x_offset, x_offset + x_gap, x_offset + x_gap}
- menu_pos_y = {menu_y, menu_y + menu_line_height, menu_y, menu_y + menu_line_height}
+    -- menu positioning
+    x_origin = 8,
+    x_gap = 42,
 
- for i=1,#menu_options do
-  if (selected_menu_index == i) then
-   local_option_text = "▶ "..menu_options[i]
-  else
-   local_option_text = "  "..menu_options[i]
+    y_origin = narrator_box_y + 8,
+    y_gap = 12
+  }
+
+  -- update the menu with arrow keys
+  menu.update = function(this)
+
+    -- translate selected index into x and y.
+    local translated_xy = this:translate_xy(this.selected_index)
+    local pos_x = translated_xy["x"]
+    local pos_y = translated_xy["y"]
+
+    -- move the cursor and cap its positions.
+     if btnp(0) then pos_x = max(0, pos_x - 1) end
+     if btnp(1) then pos_x = min(this.n_columns - 1, pos_x + 1) end
+     if btnp(2) then pos_y = max(0, pos_y - 1) end
+     if btnp(3) then pos_y = min(flr(#this.items / this.n_columns) - 1, pos_y + 1) end
+
+    -- translate x and y back into selected index.
+    this.selected_index = this.n_columns * pos_y + pos_x + 1
+
   end
-  print(local_option_text, menu_pos_x[i], menu_pos_y[i], 7)
- end
+
+  -- render the current menu
+  menu.draw = function(this)
+    for i=1, #this.items do
+      local pos_x = this:translate_xy(i)["x"] * this.x_gap + this.x_origin
+      local pos_y = this:translate_xy(i)["y"] * this.y_gap + this.y_origin
+      
+      -- print the selected menu item
+      if (this.selected_index == i) then prefix = "▶ " else prefix = "  " end
+      print(prefix..this.items[i], pos_x, pos_y, 7)
+
+    end
+  end
+
+  menu.translate_xy = function(this, i)
+    local x_index = (i - 1) % this.n_columns
+    local y_index = ceil(i / this.n_columns) - 1
+    return {x = x_index, y = y_index}
+  end
+
+  return menu
+end
+
+function draw_menu(menu)
 end
 
 function draw_caret()
@@ -234,6 +257,7 @@ end
 function _init()
   sequence = new_sequence()
   state = new_game_state()
+  combat_menu = new_menu({"attack", "defend", "magic", "items"})
 
   -- start the player's turn.
   state:start_turn(true)
@@ -249,6 +273,8 @@ function _update()
     event:action()
     event.executable = false
   end
+
+  if event.type == "menu" then combat_menu:update() end
 
   -- check for end-turn.
   if btnp(5) then
@@ -266,7 +292,7 @@ function _draw()
 
   -- show the current event.
   if (event.type == "menu") then
-    draw_menu() 
+    combat_menu:draw()
   else
     print_wrapped(event.desc)
     draw_caret()
