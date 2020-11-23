@@ -17,7 +17,12 @@ f_count = 0
 -- game state
 function new_game_state()
 
-  local player = new_unit("player", 100, {"menu"})
+  -- create player controlled unit
+  local player_events = {"menu"}
+  local player_items = {"potion", "silver sword", "gun"}
+  local player = new_unit("player", 100, player_events, player_items)
+
+  -- create enemy unit
   local enemy = new_unit("wolf", 300, {"slash", "dark charge", "strong defend", "raging strike", "ravage", "cleave"})
 
   local state = {
@@ -52,19 +57,20 @@ function new_game_state()
 
   state.switch_turn = function(this)
     this:start_turn(not this.is_player_turn)
-    sequence:next()
   end
 
   return state
 end
 
 -- units
-function new_unit(name, hp, event_pool)
+function new_unit(name, hp, event_pool, items)
   local unit = {
     name=name,
     hp=hp,
     max_hp=hp,
     mana=5,
+    max_mana=5,
+    items=items,
 
     -- event management
     event_pool=event_pool,
@@ -325,10 +331,32 @@ function new_heal_event(name, unit, value)
   return event
 end
 
+function new_mana_event(name, unit, value)
+  local event = new_info_event(unit.name.." uses "..name..".", true)
+  event.action = function(this)
+    local mp_gap = unit.max_mana - unit.mana
+    if mp_gap == 0 then
+      sequence:insert(new_info_event(unit.name.." is full mana already!"))
+    else
+      mana_value = min(mp_gap, value)
+      sequence:insert(new_mana_recovery_event(unit, mana_value))
+    end
+  end
+  return event
+end
+
 function new_recovery_event(unit, heal_value)
   local event = new_info_event(unit.name.." recovers "..heal_value.." hp.", true)
   event.action = function(this)
     unit.hp += heal_value
+  end
+  return event
+end
+
+function new_mana_recovery_event(unit, mana_value)
+  local event = new_info_event(unit.name.." recovers "..mana_value.." mana.", true)
+  event.action = function(this)
+    unit.mana += mana_value
   end
   return event
 end
@@ -340,7 +368,6 @@ function new_attack_event(name, unit, target, value)
 
     -- insert special event effects
     if name == "raging strike" then insert_vulnerable_event(unit) end
-    if name == "ravage" then insert_bleed_event(target) end
     if name == "spark" then insert_blind_event(target) end
 
     -- create an event 'head' to append to. we won't use it
@@ -382,6 +409,7 @@ function new_attack_event(name, unit, target, value)
 
     -- resolve the damage.
     if damage > 0 then
+      if name == "ravage" then insert_bleed_event(target) end
       head_event:chain_add(new_damage_event(target, damage))
     else
       head_event:chain_add(new_info_event("this dealt no damage!"))
@@ -415,7 +443,6 @@ end
 
 function insert_bleed_event(unit)
   local event = new_info_event(unit.name.." is bleeding, and will take extra damage when attacked.", true)
-  event:chain_add(new_info_event("bleeding can be stopped by avoiding damage."))
   event.action = function(this) unit.bleed = 3 end
   sequence:insert(event)
 end
@@ -441,7 +468,7 @@ function new_damage_event(unit, value)
 end
 
 function new_end_turn_event()
-  local event = new_event("end_turn", "", true)
+  local event = new_event("auto", "", true)
   event.action = function(this)
     state:switch_turn()
   end
@@ -484,13 +511,22 @@ function as_spell(unit, event)
   spell_event.action = function(this)
     if unit.mana > 0 then
       unit.mana -= 1
-      sequence:add(event)
+      sequence:insert(event)
     else
       sequence:insert(new_event("menu"))
       sequence:insert(new_info_event("you don't have enough mana to cast this spell."))
     end
   end
   return spell_event
+end
+
+function as_item(item_name, unit, event)
+  local item_event = new_event("auto", "", true)
+  item_event.action = function(this)
+    del(unit.items, item_name)
+    sequence:add(event)
+  end
+  return item_event
 end
 
 function generate_event(event_id, unit, target)
@@ -500,12 +536,28 @@ function generate_event(event_id, unit, target)
   if event_id == "attack" then return new_attack_event(event_id, unit, target, 15) end
   if event_id == "defend" then return new_defend_event(event_id, unit, 15) end
   if event_id == "magic" then return new_event("magic") end
-  if event_id == "items" then return new_event("items") end
+
+  -- items are a special case. we need to create a new menu.
+  if event_id == "items" then
+    if #unit.items == 0 then
+      local no_item_event = new_info_event("you have no items left to use.")
+      no_item_event:chain_add(new_event("menu"))
+      return no_item_event
+    else
+      items_menu = new_menu(unit.items, 1, "menu", true)
+      return new_event("items")
+    end
+  end
 
   -- player magic
   if event_id == "spark" then return as_spell(unit, new_attack_event(event_id, unit, target, 12)) end
   if event_id == "fireball" then return as_spell(unit, new_attack_event(event_id, unit, target, 20)) end
   if event_id == "heal" then return as_spell(unit, new_heal_event(event_id, unit, 35)) end
+
+  -- player items
+  if event_id == "potion" then return as_item(event_id, unit, new_mana_event(event_id, unit, 5)) end
+  if event_id == "silver sword" then return as_item(event_id, unit, new_attack_event(event_id, unit, target, 12)) end
+  if event_id == "gun" then return as_item(event_id, unit, new_attack_event(event_id, unit, target, 12)) end
 
   -- boss moves
   if event_id == "slash" then return new_attack_event(event_id, unit, target, 12) end
@@ -546,7 +598,6 @@ function new_combat_scene()
     state = new_game_state()
     combat_menu = new_menu({"attack", "defend", "magic", "items"}, 2)
     magic_menu = new_menu({"fireball", "spark", "heal"}, 1, "menu", true)
-    items_menu = new_menu({"potion", "silver sword", "gun"}, 1, "menu", true)
     state:start_turn(true)
     return this
   end
