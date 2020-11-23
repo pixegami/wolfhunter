@@ -157,17 +157,18 @@ function new_sequence()
   return sequence
 end
 
-function print_wrapped(text)
+function print_wrapped(text, x, y)
  line_arr = split(text," ")
- cursor(narrator_padding, narrator_box_y + narrator_padding, 7)
+ cursor(x, y, 7)
  line = ""
  
  for word in all(line_arr) do
   word_str = tostring(word) -- case to string or it fails on numbers
   prospect_length = (#line + #word_str + 1) * 4
   if (prospect_length >= col_width) do
-   print(line)
+   print(line, x, y)
    line = word_str
+   y += 8
   else
    if (#line == 0) do
     line = word_str
@@ -176,7 +177,7 @@ function print_wrapped(text)
    end
   end
  end
- print(line)
+ print(line, x, y)
 end
 
 function flip_count(n_frames)
@@ -185,21 +186,21 @@ function flip_count(n_frames)
 end
 
 -- menu system
-function new_menu(items, n_columns, back_action)
+function new_menu(items, n_columns, back_action, show_desc)
 
   -- model the menu
   local menu = {
     items = items,
     n_columns = n_columns,
     back_action = back_action,
+    show_desc = show_desc,
 
     -- menu positioning
     selected_index = 1,
     x_origin = 8,
     x_gap = 42,
-
     y_origin = narrator_box_y + 8,
-    y_gap = 12
+    y_gap = 12,
   }
 
   -- update the menu with arrow keys
@@ -235,6 +236,10 @@ function new_menu(items, n_columns, back_action)
 
   -- render the current menu
   menu.draw = function(this)
+
+    this:draw_desc()
+    draw_narrator_box()
+
     for i=1, #this.items do
       local pos_x = this:translate_xy(i)["x"] * this.x_gap + this.x_origin
       local pos_y = this:translate_xy(i)["y"] * this.y_gap + this.y_origin
@@ -243,6 +248,22 @@ function new_menu(items, n_columns, back_action)
       if (this.selected_index == i) then prefix = "▶ " else prefix = "  " end
       print(prefix..this.items[i], pos_x, pos_y, 7)
     end
+  end
+
+  -- draw a sub-menu with description of the item.
+  menu.draw_desc = function(this)
+    if not this.show_desc then return end
+
+    local gap = 1
+    local height = 12
+    local box_y = narrator_box_y-gap-height
+    rectfill(0, box_y, 128, narrator_box_y-gap, 2)
+
+    local text_gap = 4
+    local desc = get_event_desc(this.items[this.selected_index])
+    local origin_x = text_gap
+    local origin_y = box_y + text_gap
+    print_wrapped(desc, origin_x, origin_y)
   end
 
   menu.translate_xy = function(this, i)
@@ -453,7 +474,7 @@ function new_block_event(unit, value)
 end
 
 function new_dark_charge_event(unit)
-  local event = new_info_event(unit.name.." howls and leaps high into the night. Beware!")
+  local event = new_info_event(unit.name.." howls and leaps high into the night. beware!")
   unit:insert_event("dark flight")
   return event
 end
@@ -499,6 +520,20 @@ function generate_event(event_id, unit, target)
   return new_event("story", "you use "..event_id.."... but nothing happens.")
 end
 
+function get_event_desc(event_id)
+  local descriptions = {
+    spark = "causes enemy to miss attacks",
+    fireball = "ignores blocking defense",
+    heal = "heals hp and stops bleeding"
+  }
+
+  if descriptions[event_id] ~= nil then
+    return descriptions[event_id]
+  else
+    return "unknown description"
+  end
+end
+
 -->8
 --scenes
 
@@ -510,8 +545,8 @@ function new_combat_scene()
     sequence = new_sequence()
     state = new_game_state()
     combat_menu = new_menu({"attack", "defend", "magic", "items"}, 2)
-    magic_menu = new_menu({"fireball", "spark", "heal"}, 1, "menu")
-    items_menu = new_menu({"potion", "silver sword", "gun"}, 1, "menu")
+    magic_menu = new_menu({"fireball", "spark", "heal"}, 1, "menu", true)
+    items_menu = new_menu({"potion", "silver sword", "gun"}, 1, "menu", true)
     state:start_turn(true)
     return this
   end
@@ -531,7 +566,7 @@ function new_combat_scene()
       items_menu:draw()
       draw_caret("back 🅾️")
     else
-      print_wrapped(event.desc)
+      print_wrapped(event.desc, narrator_padding, narrator_box_y + narrator_padding)
       draw_caret()
     end
   end
@@ -580,15 +615,12 @@ end
 -->8
 --rendering
 
-function draw_menu(menu)
-end
-
 function draw_caret(caret_text)
  if (flip_count(15)) then
   if not caret_text then caret_text = "press ❎" end
   caret_x = 128 - narrator_padding - #caret_text * 4
   caret_y = 128 - narrator_padding - 6
-  print(caret_text, caret_x, caret_y)
+  print(caret_text, caret_x, caret_y, 7)
  end
 end
 
