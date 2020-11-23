@@ -17,8 +17,8 @@ f_count = 0
 -- game state
 function new_game_state()
 
-  local player = new_unit("player", 250, {"menu"})
-  local enemy = new_unit("wolf", 500, {"slash", "dark charge", "strong defend", "raging strike", "ravage", "cleave"})
+  local player = new_unit("player", 100, {"menu"})
+  local enemy = new_unit("wolf", 300, {"slash", "dark charge", "strong defend", "raging strike", "ravage", "cleave"})
 
   local state = {
     player = player,
@@ -63,6 +63,7 @@ function new_unit(name, hp, event_pool)
   local unit = {
     name=name,
     hp=hp,
+    max_hp=hp,
 
     -- event management
     event_pool=event_pool,
@@ -71,7 +72,8 @@ function new_unit(name, hp, event_pool)
     --combat status
     block = 0, -- block incoming damage for 1 turn.
     bleed = 0, -- bleeding, taking damage each turn.
-    vulnerable = false -- take double damage from attacks.
+    blind = 0, -- if blind, unit's attacks will miss
+    vulnerable = false, -- take double damage from attacks.
   }
 
   unit.get_random_event_id = function(this)
@@ -107,16 +109,21 @@ function new_unit(name, hp, event_pool)
 
     -- reset unit status effects.
     if this.vulnerable then
-      sequence:add(new_event("story", unit.name.." is no longer vulnerable."))
+      sequence:add(new_info_event(unit.name.." is no longer vulnerable."))
     end
 
     if this.bleed == 1 then
-      sequence:add(new_event("story", unit.name.." is no longer bleeding."))
+      sequence:add(new_info_event(unit.name.." is no longer bleeding."))
+    end
+
+    if this.blind == 1 then
+      sequence:add(new_info_event(unit.name.." is no longer blinded."))
     end
 
     this.vulnerable = false
     this.block = 0
     this.bleed -= 1
+    this.blind -= 1
   end
 
   return unit
@@ -275,6 +282,35 @@ function new_event(type, desc, executable)
   return event
 end
 
+function new_heal_event(name, unit, value)
+  local event = new_info_event(unit.name.." uses "..name..".", true)
+  event.action = function(this)
+
+    -- heal status effects
+    if unit.bleed > 0 then
+      sequence:insert(new_info_event(unit.name.."'s bleeding is healed!"))
+      unit.bleed = 0
+    end
+
+    local hp_gap = unit.max_hp - unit.hp
+    if hp_gap == 0 then
+      sequence:insert(new_info_event(unit.name.." is full health already!"))
+    else
+      heal_value = min(hp_gap, value)
+      sequence:insert(new_recovery_event(unit, heal_value))
+    end
+  end
+  return event
+end
+
+function new_recovery_event(unit, heal_value)
+  local event = new_info_event(unit.name.." recovers "..heal_value.." hp.", true)
+  event.action = function(this)
+    unit.hp += heal_value
+  end
+  return event
+end
+
 function new_attack_event(name, unit, target, value)
   local event = new_info_event(unit.name.." uses "..name..".", true)
 
@@ -283,10 +319,18 @@ function new_attack_event(name, unit, target, value)
     -- insert special event effects
     if name == "raging strike" then insert_vulnerable_event(unit) end
     if name == "ravage" then insert_bleed_event(target) end
+    if name == "spark" then insert_blind_event(target) end
 
     -- create an event 'head' to append to. we won't use it
     local head_event = new_event()
     local damage = value
+
+    -- resolve blind.
+    if unit.blind > 0 then
+      head_event:chain_add(new_info_event(unit.name.." is blind... the attack misses!"))
+      sequence:insert(head_event.next)
+      return
+    end
 
     -- resolve cleave
     if name == "cleave" then 
@@ -302,10 +346,16 @@ function new_attack_event(name, unit, target, value)
 
     -- resolve the block.
     if target.block > 0 then
-      blocked_damage = min(target.block, damage)
-      target.block -= blocked_damage
-      damage -= blocked_damage
-      head_event:chain_add(new_info_event("blocked "..blocked_damage.." damage."))
+      -- fireball cannot be blocked, deals extra damage!
+      if name == "fireball" then
+        head_event:chain_add(new_info_event("fireball cannot be blocked! it deals extra damage."))
+        damage += 25
+      else
+        blocked_damage = min(target.block, damage)
+        target.block -= blocked_damage
+        damage -= blocked_damage
+        head_event:chain_add(new_info_event("blocked "..blocked_damage.." damage."))
+      end
     end
 
     -- resolve the damage.
@@ -332,6 +382,12 @@ end
 function insert_vulnerable_event(unit)
   local event = new_info_event(unit.name.." becomes vulnerable to attacks.", true)
   event.action = function(this) unit.vulnerable = true end
+  sequence:insert(event)
+end
+
+function insert_blind_event(unit)
+  local event = new_info_event(unit.name.." is blinded!", true)
+  event.action = function(this) unit.blind = 2 end
   sequence:insert(event)
 end
 
@@ -401,28 +457,27 @@ function new_dark_charge_event(unit)
   return event
 end
 
--- function new_magic_event(unit, value)
---   local desc = "open magic menu"
---   local event = new_event("magic_menu", desc, true)
---   return event
--- end
-
 function generate_event(event_id, unit, target)
 
   -- player moves
   if event_id == "menu" then return new_event("menu") end
-  if event_id == "attack" then return new_attack_event(event_id, unit, target, 36) end
-  if event_id == "defend" then return new_defend_event(event_id, unit, 12) end
+  if event_id == "attack" then return new_attack_event(event_id, unit, target, 15) end
+  if event_id == "defend" then return new_defend_event(event_id, unit, 15) end
   if event_id == "magic" then return new_event("magic") end
   if event_id == "items" then return new_event("items") end
 
+  -- player magic
+  if event_id == "spark" then return new_attack_event(event_id, unit, target, 12) end
+  if event_id == "fireball" then return new_attack_event(event_id, unit, target, 20) end
+  if event_id == "heal" then return new_heal_event(event_id, unit, 35) end
+
   -- boss moves
-  if event_id == "slash" then return new_attack_event(event_id, unit, target, 16) end
-  if event_id == "strong defend" then return new_defend_event(event_id, unit, 32) end
+  if event_id == "slash" then return new_attack_event(event_id, unit, target, 12) end
+  if event_id == "strong defend" then return new_defend_event(event_id, unit, 20) end
   if event_id == "dark charge" then return new_dark_charge_event(unit) end
-  if event_id == "dark flight" then return new_attack_event(event_id, unit, target, 48) end
-  if event_id == "raging strike" then return new_attack_event(event_id, unit, target, 24) end
-  if event_id == "ravage" then return new_attack_event(event_id, unit, target, 12) end
+  if event_id == "dark flight" then return new_attack_event(event_id, unit, target, 64) end
+  if event_id == "raging strike" then return new_attack_event(event_id, unit, target, 18) end
+  if event_id == "ravage" then return new_attack_event(event_id, unit, target, 8) end
   if event_id == "cleave" then return new_attack_event(event_id, unit, target, 0) end
 
   -- unknown event id
@@ -440,7 +495,7 @@ function new_combat_scene()
     sequence = new_sequence()
     state = new_game_state()
     combat_menu = new_menu({"attack", "defend", "magic", "items"}, 2)
-    magic_menu = new_menu({"fireball", "heal", "ensnare"}, 1, "menu")
+    magic_menu = new_menu({"fireball", "spark", "heal"}, 1, "menu")
     items_menu = new_menu({"potion", "silver sword", "gun"}, 1, "menu")
     state:start_turn(true)
     return this
