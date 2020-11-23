@@ -177,15 +177,16 @@ function flip_count(n_frames)
 end
 
 -- menu system
-function new_menu(items, n_columns)
+function new_menu(items, n_columns, back_action)
 
   -- model the menu
   local menu = {
     items = items,
-    n_columns = 2,
-    selected_index = 1,
+    n_columns = n_columns,
+    back_action = back_action,
 
     -- menu positioning
+    selected_index = 1,
     x_origin = 8,
     x_gap = 42,
 
@@ -215,6 +216,12 @@ function new_menu(items, n_columns)
       local selected_event_id = this.items[this.selected_index]
       local selected_event = generate_event(selected_event_id, state.player, state.enemy)
       sequence:insert(selected_event)
+    end
+
+    -- execute the back function
+    if btnp(4) and this.back_action then
+      sequence:insert(new_event("menu"))
+      sequence:next()
     end
   end
 
@@ -269,7 +276,7 @@ function new_event(type, desc, executable)
 end
 
 function new_attack_event(name, unit, target, value)
-  local event = new_event("story", unit.name.." uses "..name..".", true)
+  local event = new_info_event(unit.name.." uses "..name..".", true)
 
   event.action = function(this)
 
@@ -283,34 +290,34 @@ function new_attack_event(name, unit, target, value)
 
     -- resolve cleave
     if name == "cleave" then 
-      head_event:chain_add(new_event("story", "a third of "..target.name.."'s life is dealt as damage."))
-      damage = ceil(target.hp * 0.5)
+      head_event:chain_add(new_info_event("a third of "..target.name.."'s life is dealt as damage."))
+      damage = ceil(target.hp * 0.33)
     end
 
     -- resolve vulnerability.
     if target.vulnerable then
       damage *= 2
-      head_event:chain_add(new_event("story", target.name.." is vulnerable. the damage is doubled."))
+      head_event:chain_add(new_info_event(target.name.." is vulnerable. the damage is doubled."))
     end
 
     -- resolve the block.
     if target.block > 0 then
-      blocked_damage = min(target.block, value)
+      blocked_damage = min(target.block, damage)
       target.block -= blocked_damage
       damage -= blocked_damage
-      head_event:chain_add(new_event("story", "blocked "..blocked_damage.." damage."))
+      head_event:chain_add(new_info_event("blocked "..blocked_damage.." damage."))
     end
 
     -- resolve the damage.
     if damage > 0 then
       head_event:chain_add(new_damage_event(target, damage))
     else
-      head_event:chain_add(new_event("story", "this dealt no damage!"))
+      head_event:chain_add(new_info_event("this dealt no damage!"))
     end
 
     -- resolve the bleed.
     if target.bleed > 0 and damage > 0 then
-      head_event:chain_add(new_event("story", target.name.." takes extra damage from bleeding."))
+      head_event:chain_add(new_info_event(target.name.." takes extra damage from bleeding."))
       head_event:chain_add(new_damage_event(target, k_bleed_damage))
       target.bleed += 1 -- unit continues to bleed another turn.
     end
@@ -323,16 +330,20 @@ function new_attack_event(name, unit, target, value)
 end
 
 function insert_vulnerable_event(unit)
-  local event = new_event("story", unit.name.." becomes vulnerable to attacks.", true)
+  local event = new_info_event(unit.name.." becomes vulnerable to attacks.", true)
   event.action = function(this) unit.vulnerable = true end
   sequence:insert(event)
 end
 
 function insert_bleed_event(unit)
-  local event = new_event("story", unit.name.." is bleeding, and will take extra damage when attacked.", true)
-  event:chain_add(new_event("story", "bleeding can be stopped by avoiding damage."))
+  local event = new_info_event(unit.name.." is bleeding, and will take extra damage when attacked.", true)
+  event:chain_add(new_info_event("bleeding can be stopped by avoiding damage."))
   event.action = function(this) unit.bleed = 3 end
   sequence:insert(event)
+end
+
+function new_info_event(text, executable)
+  return new_event("story", text, executable)
 end
 
 function new_damage_event(unit, value)
@@ -344,7 +355,7 @@ function new_damage_event(unit, value)
     if unit.hp <= 0 then
       unit.hp = 0
       sequence:insert(new_end_combat_event())
-      sequence:insert(new_event("story", "the fight has ended!"))
+      sequence:insert(new_info_event("the fight has ended!"))
     end
   end
 
@@ -368,7 +379,7 @@ function new_end_combat_event()
 end
 
 function new_defend_event(name, unit, value)
-  local event = new_event("story", unit.name.." uses "..name..".", true)
+  local event = new_info_event(unit.name.." uses "..name..".", true)
   event.action = function(this)
     local block_event = new_block_event(unit, value)
     block_event.action = function(this) unit.block += value end
@@ -385,11 +396,16 @@ function new_block_event(unit, value)
 end
 
 function new_dark_charge_event(unit)
-  local desc = unit.name.." howls and leaps high into the night. Beware!"
-  local event = new_event("story", desc)
+  local event = new_info_event(unit.name.." howls and leaps high into the night. Beware!")
   unit:insert_event("dark flight")
   return event
 end
+
+-- function new_magic_event(unit, value)
+--   local desc = "open magic menu"
+--   local event = new_event("magic_menu", desc, true)
+--   return event
+-- end
 
 function generate_event(event_id, unit, target)
 
@@ -397,6 +413,8 @@ function generate_event(event_id, unit, target)
   if event_id == "menu" then return new_event("menu") end
   if event_id == "attack" then return new_attack_event(event_id, unit, target, 36) end
   if event_id == "defend" then return new_defend_event(event_id, unit, 12) end
+  if event_id == "magic" then return new_event("magic") end
+  if event_id == "items" then return new_event("items") end
 
   -- boss moves
   if event_id == "slash" then return new_attack_event(event_id, unit, target, 16) end
@@ -405,7 +423,7 @@ function generate_event(event_id, unit, target)
   if event_id == "dark flight" then return new_attack_event(event_id, unit, target, 48) end
   if event_id == "raging strike" then return new_attack_event(event_id, unit, target, 24) end
   if event_id == "ravage" then return new_attack_event(event_id, unit, target, 12) end
-  if event_id == "cleave" then return new_attack_event(event_id, unit, target, 1) end
+  if event_id == "cleave" then return new_attack_event(event_id, unit, target, 0) end
 
   -- unknown event id
   return new_event("story", "you use "..event_id.."... but nothing happens.")
@@ -421,7 +439,9 @@ function new_combat_scene()
   scene.init = function(this)
     sequence = new_sequence()
     state = new_game_state()
-    combat_menu = new_menu({"attack", "defend", "magic", "items"})
+    combat_menu = new_menu({"attack", "defend", "magic", "items"}, 2)
+    magic_menu = new_menu({"fireball", "heal", "ensnare"}, 1, "menu")
+    items_menu = new_menu({"potion", "silver sword", "gun"}, 1, "menu")
     state:start_turn(true)
     return this
   end
@@ -432,8 +452,14 @@ function new_combat_scene()
     draw_units()
 
     -- show the current event.
-    if (event.type == "menu") then
+    if event.type == "menu" then
       combat_menu:draw()
+    elseif event.type == "magic" then
+      magic_menu:draw()
+      draw_caret("back 🅾️")
+    elseif event.type == "items" then
+      items_menu:draw()
+      draw_caret("back 🅾️")
     else
       print_wrapped(event.desc)
       draw_caret()
@@ -451,6 +477,8 @@ function new_combat_scene()
 
     -- update the menu if we are showing one.
     if event.type == "menu" then combat_menu:update() end
+    if event.type == "magic" then magic_menu:update() end
+    if event.type == "items" then items_menu:update() end
 
     -- each time we press x, the sequence progresses.
     if btnp(5) then sequence:next() end
@@ -485,12 +513,12 @@ end
 function draw_menu(menu)
 end
 
-function draw_caret()
+function draw_caret(caret_text)
  if (flip_count(15)) then
-  caret = "press ❎"
-  caret_x = 128 - narrator_padding - #caret * 4
+  if not caret_text then caret_text = "press ❎" end
+  caret_x = 128 - narrator_padding - #caret_text * 4
   caret_y = 128 - narrator_padding - 6
-  print(caret, caret_x, caret_y)
+  print(caret_text, caret_x, caret_y)
  end
 end
 
