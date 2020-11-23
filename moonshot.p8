@@ -64,6 +64,7 @@ function new_unit(name, hp, event_pool)
     name=name,
     hp=hp,
     max_hp=hp,
+    mana=5,
 
     -- event management
     event_pool=event_pool,
@@ -457,6 +458,20 @@ function new_dark_charge_event(unit)
   return event
 end
 
+function as_spell(unit, event)
+  local spell_event = new_event("auto", "", true)
+  spell_event.action = function(this)
+    if unit.mana > 0 then
+      unit.mana -= 1
+      sequence:add(event)
+    else
+      sequence:insert(new_event("menu"))
+      sequence:insert(new_info_event("you don't have enough mana to cast this spell."))
+    end
+  end
+  return spell_event
+end
+
 function generate_event(event_id, unit, target)
 
   -- player moves
@@ -467,9 +482,9 @@ function generate_event(event_id, unit, target)
   if event_id == "items" then return new_event("items") end
 
   -- player magic
-  if event_id == "spark" then return new_attack_event(event_id, unit, target, 12) end
-  if event_id == "fireball" then return new_attack_event(event_id, unit, target, 20) end
-  if event_id == "heal" then return new_heal_event(event_id, unit, 35) end
+  if event_id == "spark" then return as_spell(unit, new_attack_event(event_id, unit, target, 12)) end
+  if event_id == "fireball" then return as_spell(unit, new_attack_event(event_id, unit, target, 20)) end
+  if event_id == "heal" then return as_spell(unit, new_heal_event(event_id, unit, 35)) end
 
   -- boss moves
   if event_id == "slash" then return new_attack_event(event_id, unit, target, 12) end
@@ -536,7 +551,7 @@ function new_combat_scene()
     if event.type == "items" then items_menu:update() end
 
     -- each time we press x, the sequence progresses.
-    if btnp(5) then sequence:next() end
+    if btnp(5) or event.type == "auto" then sequence:next() end
   end
 
   return scene
@@ -583,7 +598,9 @@ function draw_narrator_box()
 end
 
 function draw_unit(unit, pos_x, pos_y)
-  print(unit.name..": "..unit.hp, pos_x, pos_y, 7)
+  print(unit.name, pos_x, pos_y, 7)
+  print("hp: "..unit.hp, pos_x, pos_y + 7, 11)
+  print("mp: "..unit.mana, pos_x, pos_y + 7 * 2, 12)
 end
 
 function draw_units()
