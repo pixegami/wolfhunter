@@ -72,6 +72,9 @@ function new_unit(name, hp, event_pool, items)
     max_mana=5,
     items=items,
 
+    -- used to animate the unit
+    animation=nil,
+
     -- event management
     event_pool=event_pool,
     event_queue={},
@@ -131,6 +134,10 @@ function new_unit(name, hp, event_pool, items)
     this.block = 0
     this.bleed -= 1
     this.blind -= 1
+  end
+
+  unit.animate = function(this, animation)
+    this.animation = animation
   end
 
   return unit
@@ -348,6 +355,7 @@ end
 function new_recovery_event(unit, heal_value)
   local event = new_info_event(unit.name.." recovers "..heal_value.." hp.", true)
   event.action = function(this)
+    unit:animate(new_heal_animation())
     unit.hp += heal_value
   end
   return event
@@ -356,6 +364,7 @@ end
 function new_mana_recovery_event(unit, mana_value)
   local event = new_info_event(unit.name.." recovers "..mana_value.." mana.", true)
   event.action = function(this)
+
     unit.mana += mana_value
   end
   return event
@@ -457,6 +466,7 @@ function new_damage_event(unit, value)
   local dmg_event = new_event("damage", desc, true)
   dmg_event.action = function(this)
     unit.hp -= value
+    unit:animate(new_hit_animation())
     if unit.hp <= 0 then
       unit.hp = 0
       sequence:insert(new_end_combat_event())
@@ -664,6 +674,64 @@ function new_victory_scene()
 end
 
 -->8
+-- animation
+function new_animation(loop_length)
+  local animation = {
+    name = "default",
+    n = 0,
+    loop_length = loop_length,
+    frames_left = 15,
+    is_visible = true,
+    x = 0,
+    y = 0,
+    color = 0,
+  }
+  
+  animation.update = function(this)
+    this.n += 1
+    this.frames_left -= 1
+    this:render()
+  end
+
+  animation.has_ended = function(this)
+    return this.frames_left <= 0
+  end
+
+  animation.loop_frame = function(this, n)
+    return this.n % this.loop_length == n
+  end
+
+  animation.render = function(this)
+  end
+
+  return animation
+end
+
+function new_hit_animation()
+  local animation = new_animation(6)
+  animation.render = function(this)
+    this.color = 0
+    if this:loop_frame(0) then this.color = 7 end
+    if this:loop_frame(1) then this.color = 14 end
+    if this:loop_frame(2) then this.color = 8 end
+
+    this.x = sin(this.n/3.15) * 2
+  end
+  return animation
+end
+
+function new_heal_animation()
+  local animation = new_animation(5)
+  animation.render = function(this)
+    this.color = 0
+    if this:loop_frame(0) then this.color = 7 end
+    if this:loop_frame(1) then this.color = 11 end
+    if this:loop_frame(2) then this.color = 3 end
+  end
+  return animation
+end
+
+-->8
 --rendering
 
 function draw_caret(caret_text)
@@ -739,11 +807,13 @@ function draw_unit(unit, is_inverted)
 
   local spr_blocks = 5
   local spr_size = spr_blocks * 8
+
   palt(0, false)
   palt(7, true)
 
   pos_x = 0
   pos_y = 5
+  is_visible = true
   
   if is_inverted then
     spr_x = 128 - spr_size
@@ -755,7 +825,20 @@ function draw_unit(unit, is_inverted)
     pos_x = spr_size
   end
 
-  spr(1, spr_x, spr_y, spr_blocks, spr_blocks) -- draw player sprite
+  -- apply unit animation
+  if unit.animation then
+    unit.animation:update()
+    is_visible = unit.animation.is_visible
+    pal(0, unit.animation.color)
+    spr_x += unit.animation.x
+    spr_y += unit.animation.y
+    if unit.animation:has_ended() then unit.animation = nil end
+  end
+
+  -- draw the unit and reset the palettes
+  if is_visible then spr(1, spr_x, spr_y, spr_blocks, spr_blocks) end -- draw player sprite
+  pal()
+
   draw_status_box(unit, pos_x, is_inverted)
 end
 
