@@ -322,6 +322,8 @@ function new_heal_event(name, unit, value)
   local event = new_info_event(unit.name.." uses "..name..".", true)
   event.action = function(this)
 
+    unit.vfx_animation = new_heal_vfx_animation("green")
+
     -- heal status effects
     if unit.bleed > 0 then
       sequence:insert(new_info_event(unit.name.."'s bleeding is healed!"))
@@ -342,6 +344,9 @@ end
 function new_mana_event(name, unit, value)
   local event = new_info_event(unit.name.." uses "..name..".", true)
   event.action = function(this)
+  
+    unit.vfx_animation = new_heal_vfx_animation()
+
     local mp_gap = unit.max_mana - unit.mana
     if mp_gap == 0 then
       sequence:insert(new_info_event(unit.name.." is full mana already!"))
@@ -365,7 +370,7 @@ end
 function new_mana_recovery_event(unit, mana_value)
   local event = new_info_event(unit.name.." recovers "..mana_value.." mana.", true)
   event.action = function(this)
-
+    unit:animate(new_mana_animation())
     unit.mana += mana_value
   end
   return event
@@ -738,6 +743,17 @@ function new_heal_animation()
   return animation
 end
 
+function new_mana_animation()
+  local animation = new_animation(5)
+  animation.render = function(this)
+    this.color = 0
+    if this:loop_frame(0) then this.color = 7 end
+    if this:loop_frame(1) then this.color = 12 end
+    if this:loop_frame(2) then this.color = 1 end
+  end
+  return animation
+end
+
 -->8
 -- visual effects
 function get_vfx_for_action(name)
@@ -847,6 +863,66 @@ function new_spark_animation()
       local start_x = unit_x + unit_offset
       local start_y = unit_y + unit_offset
       spr(10, start_x, start_y, 4, 4)
+    end
+
+  end
+  return animation
+end
+
+function new_particle(x, y)
+  local particle = {
+    x=x,
+    y=y,
+    f=0,
+  }
+  return particle
+end
+
+function new_heal_vfx_animation(color_override)
+
+  local animation = new_animation(3)
+  animation.frames_left = 30
+  animation.particles = {}
+  animation.color_override = color_override
+
+  animation.render = function(this, unit_x, unit_y)
+
+    local loop_frame_n = this.n % this.loop_length
+    local dead_list = {}
+    local particle_life = 4
+
+    local anchor_x = unit_x + 16
+    local anchor_y = unit_y + 16
+
+    if this.frames_left > particle_life * 2 then
+      -- add a new particle
+      local t_factor = this.n/1.8
+      local circle_factor = sin(t_factor)
+      local radius_factor = 5 + this.n / 2
+      local spawn_x = sin(t_factor) * radius_factor
+      local spawn_y = cos(t_factor) * radius_factor
+      add(this.particles, new_particle(spawn_x, spawn_y))
+    end
+
+    if this.color_override == "green" then
+      pal(1, 3)
+      pal(12, 11)
+    end
+
+    for p in all(this.particles) do
+      px = anchor_x + p.x
+      py = anchor_y + p.y
+      spr_i = 70 + p.f % particle_life
+      spr(spr_i, px, py)
+
+      p.f += 1
+      if p.f == particle_life * 2 then
+        add(dead_list, p)
+      end
+    end
+
+    for p in all(dead_list) do
+        del(this.particles, p)
     end
 
   end
@@ -968,7 +1044,7 @@ function draw_unit(unit, is_inverted)
 
   -- apply unit animation
   if unit.animation then
-    unit.animation:update()
+    unit.animation:update(spr_x, spr_y)
     is_visible = unit.animation.is_visible
     pal(0, unit.animation.color)
     anim_spr_x = spr_x + unit.animation.x
