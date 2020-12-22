@@ -473,7 +473,7 @@ function new_sequence()
     this.tail = e
   end
 
-  -- move sequence cursor to the next event.
+  -- add an event after the head of the sequence.
   sequence.insert = function(this, e)
     e:get_tail().next = this.head.next
     this.head.next = e
@@ -496,6 +496,7 @@ function new_damage_event(unit, value)
 
   local desc = unit.name.." takes "..value.." damage!"
   local dmg_event = new_event("damage", desc, true)
+
   dmg_event.action = function(this)
     unit.hp -= value
     unit:animate(new_hit_animation())
